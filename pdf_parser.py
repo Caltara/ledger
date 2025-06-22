@@ -1,74 +1,46 @@
-import io
-import pandas as pd
-from pdf2image import convert_from_bytes
-from PIL import Image
 import openai
+import pandas as pd
 import streamlit as st
+import json
 
-# Initialize OpenAI client with API key from Streamlit secrets or environment
-openai.api_key = st.secrets.get("OPENAI_API_KEY") or ""
+openai.api_key = st.secrets.get("OPENAI_API_KEY")
 
-def extract_tables_from_pdf(file) -> pd.DataFrame:
+def extract_tables_from_pdf(uploaded_file) -> pd.DataFrame:
     """
-    Convert PDF pages to images, send each image to GPT-4 Vision,
-    parse GPT response JSON table and combine into one DataFrame.
+    Sends a full PDF file to GPT-4 Vision via the file API,
+    asks it to return a clean, structured P&L table in JSON format.
     """
-    file.seek(0)
-    images = convert_from_bytes(file.read())
-
-    all_dfs = []
-    for i, image in enumerate(images):
-        st.info(f"Processing page {i+1} with GPT-4 Vision...")
-        table_df = gpt_extract_table_from_image(image)
-        if table_df is not None:
-            all_dfs.append(table_df)
-
-    if not all_dfs:
-        raise ValueError("GPT-4 Vision could not extract any table data from the PDF.")
-
-    return pd.concat(all_dfs, ignore_index=True)
-
-
-def gpt_extract_table_from_image(image: Image.Image) -> pd.DataFrame | None:
-    """
-    Send image to GPT-4 Vision with prompt to extract P&L table as JSON.
-    Returns a DataFrame or None if extraction fails.
-    """
-
-    # Convert PIL Image to bytes
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG")
-    img_bytes = buffered.getvalue()
-
-    # Craft system and user prompt
-    system_prompt = (
-        "You are an expert financial analyst. "
-        "Extract the Profit & Loss statement table from the image and "
-        "return the data as JSON in this format:\n"
-        '[{"Line Item": "Revenue", "Jan 2025": 12000, "Feb 2025": 11500, ...}, {...}]\n'
-        "Ensure numbers are plain integers or floats without currency symbols or commas."
-    )
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": "Extract the table from this image."}
-    ]
+    st.info("Uploading PDF to OpenAI for table extraction...")
 
     try:
-        response = openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            modalities=["image"],
-            inputs=[{"type": "image", "image": img_bytes}],
-            temperature=0,
-            max_tokens=1500,
+        # Upload file to OpenAI
+        file_response = openai.files.create(
+            file=uploaded_file,
+            purpose="assistants"
         )
-        text_response = response.choices[0].message.content.strip()
+        file_id = file_response.id
 
-        # Parse JSON text to DataFrame
-        df = pd.read_json(text_response)
-        return df
+        # Send file to GPT-4o with instructions
+        response = openai.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": (
+                    "You are a financial data analyst. "
+                    "Extract the P&L table from the uploaded PDF and return it as a JSON array of objects. "
+                    "Each object should represent one row. Remove currency symbols, commas, and non-numeric characters."
+                )},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "Please extract the table from this PDF and return it as clean JSON."},
+                    {"type": "file", "file_id": file_id}
+                ]}
+            ],
+            max_tokens=2000
+        )
+
+        text = response.choices[0].message.content
+        data = json.loads(text)
+        return pd.DataFrame(data)
 
     except Exception as e:
-        st.error(f"GPT extraction error: {e}")
-        return None
+        st.error(f"OpenAI file extraction failed: {e}")
+        raise ValueError("Failed to extract table from PDF using GPT.")
