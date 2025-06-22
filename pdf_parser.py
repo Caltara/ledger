@@ -5,7 +5,7 @@ import openai
 
 def extract_tables_from_pdf(uploaded_file):
     try:
-        # Read PDF pages text with PyMuPDF
+        # Extract text from all pages using PyMuPDF
         with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
             all_text = ""
             for page in doc:
@@ -14,7 +14,7 @@ def extract_tables_from_pdf(uploaded_file):
         if not all_text.strip():
             raise ValueError("No extractable text found in PDF.")
 
-        # Call OpenAI GPT-4o Vision to extract tables as JSON
+        # Call OpenAI GPT-4o Vision to extract tables as JSON object
         response = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -22,18 +22,19 @@ def extract_tables_from_pdf(uploaded_file):
                     "role": "system",
                     "content": (
                         "You are a financial data analyst. "
-                        "Extract tables from this Profit & Loss statement text and return the data as JSON array "
+                        "Extract tables from this Profit & Loss statement text and return the data as a JSON object "
                         "with column headers matching line items and date columns."
                     ),
                 },
                 {"role": "user", "content": all_text},
             ],
-            response_format={"type": "json"},  # Correct format here
+            response_format={"type": "json_object"},
         )
 
-        # Parse JSON string to DataFrame
-        extracted_json = response.choices[0].message.content
-        df = pd.read_json(StringIO(extracted_json))
+        extracted_json_obj = response.choices[0].message.content
+        
+        # The content is already a Python dict (not a JSON string), so convert it directly to DataFrame
+        df = pd.DataFrame(extracted_json_obj)
         return df
 
     except Exception as e:
