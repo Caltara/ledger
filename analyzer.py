@@ -1,38 +1,27 @@
 import pandas as pd
 
-def clean_and_convert(df):
+def clean_and_convert(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df.columns = [col.strip() for col in df.columns]
-
-    currency_cols = [col for col in df.columns if any(char in col for char in ['$', 'Revenue', 'Income'])]
-    percent_cols = [col for col in df.columns if '%' in col]
-
-    for col in currency_cols:
-        df[col] = df[col].replace('[\$,]', '', regex=True).replace(',', '', regex=True).astype(str).str.replace(',', '')
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    for col in percent_cols:
-        df[col] = df[col].replace('%', '', regex=True).astype(str).str.replace(',', '')
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].astype(str).str.replace(r"[$,%]", "", regex=True)
+            df[col] = pd.to_numeric(df[col], errors="ignore")
 
     return df
 
-def detect_irregularities(df):
-    filtered = df.copy()
-    percent_cols = [col for col in df.columns if '%' in col]
+def detect_irregularities(df: pd.DataFrame) -> list:
+    change_cols = [col for col in df.columns if "%" in col]
+    output = []
 
-    if not percent_cols:
-        return pd.DataFrame()
-
-    filtered_rows = []
     for _, row in df.iterrows():
-        for col in percent_cols:
+        for col in change_cols:
             try:
-                change = abs(float(row[col]))
-                if change >= 5:
-                    filtered_rows.append(row)
-                    break
+                val = float(str(row[col]).replace("%", "").replace(",", "").strip())
+                if abs(val) >= 5:
+                    output.append({
+                        "Line Item": row.get("Line Item", "Unknown"),
+                        col: f"{val:.2f}%"
+                    })
             except:
                 continue
-
-    return pd.DataFrame(filtered_rows)
+    return output
