@@ -3,5 +3,3 @@ pandas
 matplotlib
 scikit-learn
 openai
-pdf2image
-Pillow
