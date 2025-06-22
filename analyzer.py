@@ -1,64 +1,95 @@
 import pandas as pd
-import numpy as np
 
 def clean_and_convert(df: pd.DataFrame) -> pd.DataFrame:
-    df_clean = df.copy()
-
-    # Columns except 'Line Item' assumed numeric but may contain $, commas, or %
-    cols = [col for col in df_clean.columns if col != "Line Item"]
-
-    for col in cols:
-        # Remove $ and commas
-        df_clean[col] = (
-            df_clean[col]
-            .astype(str)
-            .str.replace(r"[$,]", "", regex=True)
-            .str.strip()
-        )
-
-        # Convert percentages like "14.22%" to 0.1422
-        df_clean[col] = df_clean[col].apply(
-            lambda x: float(x.strip('%')) / 100 if isinstance(x, str) and x.endswith('%') else x
-        )
-
-        # Convert to numeric; invalid parsing -> NaN
-        df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
-
-    return df_clean
-
-def detect_irregularities(df: pd.DataFrame, threshold_pct=0.1):
     """
-    Detect irregularities where a month-over-month change is greater than threshold_pct (e.g. 10%)
-    Returns a list of dicts with 'Line Item', 'Period', 'Change', and 'Note'.
+    Cleans the DataFrame:
+    - Converts currency/percent strings to numeric for calculation
+    - Keeps original values in a formatted copy
     """
+    cleaned = df.copy()
 
+    for col in cleaned.columns:
+        if col.lower() == "line item":
+            continue
+
+        # Internal cleaning: remove $ and % to convert to float
+        cleaned[col] = cleaned[col].replace('[\$,%,]', '', regex=True)
+        cleaned[col] = pd.to_numeric(cleaned[col], errors='coerce')
+
+    cleaned = cleaned.fillna(0)
+    return cleaned
+
+
+def format_for_report(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Formats numeric columns to display with $, commas, and % as needed.
+    Keeps the 'Line Item' column untouched.
+    """
+    formatted = df.copy()
+
+    for col in formatted.columns:
+        if col.lower() == "line item":
+            continue
+
+        if "change" in col.lower():
+            # Format as percentage
+            formatted[col] = formatted[col].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "")
+        else:
+            # Format as currency with comma
+            formatted[col] = formatted[col].apply(lambda x: f"${x:,.2f}" if pd.notna(x) else "")
+
+    return formatted
+
+
+def detect_irregularities(df: pd.DataFrame, threshold: float = 20.0) -> list:
+    """
+    Detects line items with % changes greater than the threshold.
+    Returns a list of dictionaries with the anomalies.
+    """
     anomalies = []
-    cols = [col for col in df.columns if col != "Line Item"]
+    if df.empty or df.shape[1] < 3:
+        return anomalies
 
-    # We compare each column to the previous one for % change
-    for i in range(1, len(cols)):
-        current_col = cols[i]
-        prev_col = cols[i - 1]
-
-        for idx, row in df.iterrows():
-            prev_val = row[prev_col]
-            curr_val = row[current_col]
-
-            # Avoid division by zero or NaNs
-            if pd.isna(prev_val) or pd.isna(curr_val) or prev_val == 0:
-                continue
-
-            change = (curr_val - prev_val) / abs(prev_val)
-
-            if abs(change) >= threshold_pct:
-                anomalies.append({
-                    "Line Item": row["Line Item"],
-                    "From": prev_col,
-                    "To": current_col,
-                    "Change": f"{change:.1%}",
-                    "Prev Value": prev_val,
-                    "Current Value": curr_val,
-                    "Note": "Significant increase" if change > 0 else "Significant decrease"
-                })
+    for idx, row in df.iterrows():
+        line_item = row.get("Line Item", "")
+        for col in df.columns:
+            if "change" in col.lower():
+                try:
+                    value = float(str(row[col]).replace('%', '').replace(',', '').strip())
+                    if abs(value) > threshold:
+                        anomalies.append({
+                            "Line Item": line_item,
+                            "Metric": col,
+                            "Change": f"{value:.2f}%"
+                        })
+                except:
+                    continue
 
     return anomalies
+
+
+def generate_summary(df: pd.DataFrame) -> str:
+    """
+    Generates a summary comparing the first two time-based columns.
+    Keeps $, commas, and % signs in the output.
+    """
+    if df.empty or df.shape[1] < 3:
+        return "No data available to summarize."
+
+    try:
+        # Get first 2 columns after Line Item
+        cols = [col for col in df.columns if col.lower() != "line item"]
+        current_col, prev_col = cols[0], cols[1]
+
+        current_total = df[current_col].replace('[\$,%,]', '', regex=True).astype(float).sum()
+        prev_total = df[prev_col].replace('[\$,%,]', '', regex=True).astype(float).sum()
+
+        change_pct = ((current_total - prev_total) / prev_total) * 100 if prev_total != 0 else 0
+        direction = "increase" if change_pct >= 0 else "decrease"
+
+        return (
+            f"Total revenue for **{current_col}** is **${current_total:,.2f}**, "
+            f"which is a **{abs(change_pct):.2f}% {direction}** from **{prev_col}**."
+        )
+    except Exception as e:
+        return f"❌ Could not compute summary: {str(e)}"
