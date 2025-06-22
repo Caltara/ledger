@@ -2,7 +2,6 @@ streamlit
 pandas
 matplotlib
 scikit-learn
-pdfplumber
-pytesseract
+openai
 pdf2image
 Pillow
