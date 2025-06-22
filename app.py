@@ -1,16 +1,14 @@
 import streamlit as st
 import pandas as pd
-from analyzer import clean_and_convert, detect_irregularities, generate_summary
+from analyzer import clean_and_convert, detect_irregularities
 from pdf_parser import extract_tables_from_pdf
 
-st.set_page_config(page_title="Ledger | P&L Analyzer", layout="wide")
+st.set_page_config(page_title="📊 Ledger | P&L Analyzer", layout="wide")
 st.title("📊 Ledger | P&L Analyzer")
 
 st.markdown("""
 Upload a **Profit & Loss (P&L) statement** in CSV or PDF format.  
-- CSV: From Excel or QuickBooks  
-- PDF: GPT-4o Vision extracts the tables and analyzes them  
-The app shows a high-level summary and highlights significant line item changes (±5%).
+This app will summarize totals and highlight line items with a **±5% change**.
 """)
 
 uploaded_file = st.file_uploader("📤 Upload CSV or PDF", type=["csv", "pdf"])
@@ -27,22 +25,16 @@ if uploaded_file:
                 st.stop()
 
             df = clean_and_convert(raw_df)
+            anomalies = detect_irregularities(df)
 
-            st.subheader("📊 Cleaned P&L Table")
-            st.dataframe(df)
+            st.subheader("📋 High-Level Summary")
+            st.dataframe(df.style.format({"$": "${:,.2f}", "%": "{:+.2f}%"}), use_container_width=True)
 
-            summary = generate_summary(df)
-            st.subheader("📋 P&L Summary")
-            st.json(summary)
-
-            anomalies = detect_irregularities(df, threshold=5)
-            st.subheader("🚨 Significant Changes (±5%)")
-            if anomalies:
-                st.table(pd.DataFrame(anomalies))
+            st.subheader("🚨 Line Items with ±5% Change")
+            if not anomalies.empty:
+                st.dataframe(anomalies.style.format({"$": "${:,.2f}", "%": "{:+.2f}%"}), use_container_width=True)
             else:
-                st.success("✅ No significant irregularities found.")
+                st.success("✅ No significant changes (±5%) found.")
 
-    except ValueError as ve:
-        st.error(f"❌ {str(ve)}")
     except Exception as e:
-        st.error(f"⚠️ Unexpected error: {str(e)}")
+        st.error(f"❌ Error: {str(e)}")
