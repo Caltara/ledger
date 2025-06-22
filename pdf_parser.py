@@ -1,61 +1,98 @@
-import streamlit as st
-import fitz  # PyMuPDF
-import pandas as pd
-import openai
-import base64
+import fitz  # PyMuPDF, install with: pip install pymupdf
 import io
+import base64
 import json
-from PIL import Image
+import re
+import pandas as pd
+from openai import OpenAI
+import streamlit as st
 
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+client = OpenAI()
+
+def convert_pdf_to_images(file) -> list[str]:
+    """
+    Convert all PDF pages to base64-encoded PNG images as data URLs.
+    """
+    file.seek(0)  # Ensure start of file
+    pdf_doc = fitz.open(stream=file.read(), filetype="pdf")
+    images_base64 = []
+    for page_num in range(pdf_doc.page_count):
+        page = pdf_doc.load_page(page_num)
+        pix = page.get_pixmap(dpi=150)
+        img_bytes = pix.tobytes("png")
+        img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+        images_base64.append(f"data:image/png;base64,{img_b64}")
+    return images_base64
+
+def extract_json(text: str) -> str:
+    """
+    Extract the longest JSON array from GPT raw response text.
+    """
+    matches = re.findall(r'(\[.*\])', text, re.DOTALL)
+    if not matches:
+        return text
+    longest = max(matches, key=len)
+    return longest
 
 def extract_tables_from_pdf(file) -> pd.DataFrame:
-    try:
-        st.info("Rendering first page of the PDF...")
+    """
+    Extract P&L tables from all pages of a PDF using GPT-4o Vision.
 
-        pdf_doc = fitz.open(stream=file.read(), filetype="pdf")
-        first_page = pdf_doc.load_page(0)
-        pix = first_page.get_pixmap(dpi=200)
+    Args:
+        file: Uploaded PDF file-like object.
 
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        buffered = io.BytesIO()
-        img.save(buffered, format="PNG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        image_url = f"data:image/png;base64,{img_base64}"
+    Returns:
+        Combined pandas DataFrame with all extracted data.
+    """
 
-        st.info("Sending image to GPT-4o...")
+    st.info("Converting PDF pages to images...")
+    images = convert_pdf_to_images(file)
 
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a precise financial analyst. Extract the Profit & Loss statement table from this image. "
-                        "ONLY return a JSON array of objects representing rows with columns as keys. "
-                        "NO extra explanation or text. Keys should be like 'Line Item', 'Jan', 'Feb', etc."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Extract the P&L table from this image as JSON only."},
-                        {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}}
-                    ]
-                }
-            ],
-            max_tokens=2000
-        )
+    all_dfs = []
 
-        raw = response.choices[0].message.content
-        st.code("Raw GPT response:\n" + raw)
+    for i, img_url in enumerate(images):
+        st.info(f"Processing page {i+1} of {len(images)} with GPT...")
 
-        data = json.loads(raw)
-        return pd.DataFrame(data)
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a helpful assistant specialized in extracting financial data. "
+                            "Extract ONLY the Profit & Loss table from the provided image. "
+                            "Output ONLY a valid JSON array of objects, where keys are column headers and values are the row data. "
+                            "DO NOT include any explanation, markdown, or extra text."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Extract the P&L table from the image below as JSON ONLY."},
+                            {"type": "image_url", "image_url": {"url": img_url, "alt_text": f"Page {i+1} of PDF"}}
+                        ]
+                    }
+                ],
+                max_tokens=2000
+            )
 
-    except json.JSONDecodeError:
-        st.error("❌ Failed to parse JSON from GPT response. See raw output above.")
-        raise ValueError("GPT returned invalid JSON.")
-    except Exception as e:
-        st.error(f"❌ GPT-4o Vision failed: {e}")
-        raise ValueError("GPT could not extract the table from the PDF.")
+            raw = response.choices[0].message.content
+            st.code(f"Raw GPT response for page {i+1}:\n{raw}")
+
+            json_text = extract_json(raw)
+
+            data = json.loads(json_text)
+            df_page = pd.DataFrame(data)
+            all_dfs.append(df_page)
+
+        except json.JSONDecodeError:
+            st.error(f"❌ Failed to parse JSON from GPT response on page {i+1}. Please check your PDF content.")
+        except Exception as e:
+            st.error(f"❌ Unexpected error on page {i+1}: {str(e)}")
+
+    if not all_dfs:
+        raise ValueError("No tables extracted from any PDF pages.")
+
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+    return combined_df
