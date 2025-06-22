@@ -2,8 +2,9 @@ import openai
 import fitz  # PyMuPDF
 import pandas as pd
 import json
+import re
 
-def extract_tables_from_pdf(file, debug=False):
+def extract_tables_from_pdf(file):
     try:
         with fitz.open(stream=file.read(), filetype="pdf") as doc:
             all_text = "\n".join([page.get_text() for page in doc])
@@ -13,34 +14,24 @@ def extract_tables_from_pdf(file, debug=False):
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You are a financial assistant. Extract the Profit & Loss table from the input as a JSON array of rows. "
-                        "Each row should be a dictionary with keys like 'Line Item', revenues, percentage changes, etc. "
-                        "Return only the JSON array — no explanations or extra formatting."
-                    )
+                    "content": "You're a finance assistant. Extract a full Profit & Loss table as a JSON array of dictionaries. Each row is a line item with values and % change. Return ONLY the array."
                 },
                 {"role": "user", "content": all_text}
-            ],
-            response_format={"type": "json_object"}
+            ]
         )
 
-        raw = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content.strip()
+        content = re.sub(r"^```(json)?", "", content).strip()
+        content = re.sub(r"```$", "", content).strip()
 
-        if debug:
-            print("📤 GPT Raw Output:\n", raw[:1000])
-
-        parsed = json.loads(raw)
-
-        # Accept raw array
+        parsed = json.loads(content)
         if isinstance(parsed, list):
-            return pd.DataFrame(parsed), raw
+            return pd.DataFrame(parsed)
 
-        # Accept wrapped object
-        for key in ["table", "rows", "data"]:
+        for key in ["table", "data", "rows"]:
             if key in parsed and isinstance(parsed[key], list):
-                return pd.DataFrame(parsed[key]), raw
+                return pd.DataFrame(parsed[key])
 
-        raise ValueError("GPT response did not include a recognizable table key or valid array.")
-
+        raise ValueError("GPT response did not contain a valid table.")
     except Exception as e:
         raise ValueError(f"GPT failed to extract table from PDF. Error: {str(e)}")
