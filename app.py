@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from analyzer import clean_and_convert, detect_irregularities
+from analyzer import clean_and_convert, detect_irregularities, generate_summary
 from pdf_parser import extract_tables_from_pdf
 
 st.set_page_config(page_title="Ledger | P&L Analyzer", layout="wide")
@@ -26,20 +26,16 @@ if uploaded_file:
                 st.error("Unsupported file type.")
                 st.stop()
 
-            # Show raw data if you want (optional)
-            # st.subheader("📑 Raw Extracted Data")
-            # st.dataframe(raw_df)
-
-            # Clean and prepare the data for analysis
             df = clean_and_convert(raw_df)
 
-            # Show cleaned table
             st.subheader("📊 Cleaned P&L Table")
             st.dataframe(df)
 
-            # Detect anomalies with ±5% change threshold
-            anomalies = detect_irregularities(df, threshold=5)
+            summary = generate_summary(df)
+            st.subheader("📋 P&L Summary")
+            st.json(summary)
 
+            anomalies = detect_irregularities(df, threshold=5)
             st.subheader("🚨 Significant Changes (±5%)")
             if anomalies:
                 st.table(pd.DataFrame(anomalies))
