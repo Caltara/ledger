@@ -1,11 +1,23 @@
 import pandas as pd
-from io import StringIO
 import fitz  # PyMuPDF
 import openai
 
 def extract_tables_from_pdf(uploaded_file):
+    """
+    Extract tables from a PDF file by reading all text and
+    sending it to GPT-4o Vision to extract tabular data as JSON.
+
+    Args:
+        uploaded_file: A file-like object (from Streamlit uploader)
+
+    Returns:
+        pandas.DataFrame containing the extracted table data
+
+    Raises:
+        ValueError if extraction fails or data format is unexpected
+    """
     try:
-        # Extract text from all pages using PyMuPDF
+        # Extract text from all pages in the PDF
         with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
             all_text = ""
             for page in doc:
@@ -14,7 +26,7 @@ def extract_tables_from_pdf(uploaded_file):
         if not all_text.strip():
             raise ValueError("No extractable text found in PDF.")
 
-        # Call OpenAI GPT-4o Vision to extract tables as JSON object
+        # Call OpenAI GPT-4o Vision API to parse the P&L table as JSON object
         response = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -31,10 +43,27 @@ def extract_tables_from_pdf(uploaded_file):
             response_format={"type": "json_object"},
         )
 
-        extracted_json_obj = response.choices[0].message.content
-        
-        # The content is already a Python dict (not a JSON string), so convert it directly to DataFrame
-        df = pd.DataFrame(extracted_json_obj)
+        extracted_obj = response.choices[0].message.content
+
+        # DEBUG: Uncomment to inspect raw GPT output if needed
+        # print("Extracted GPT JSON object:", extracted_obj)
+
+        # Extract the actual table data from the response
+        if isinstance(extracted_obj, dict):
+            # If the response wraps data inside a key, update here accordingly
+            if "data" in extracted_obj:
+                data_for_df = extracted_obj["data"]
+            else:
+                data_for_df = extracted_obj
+        else:
+            data_for_df = extracted_obj
+
+        # Convert extracted data to pandas DataFrame
+        df = pd.DataFrame(data_for_df)
+
+        if df.empty:
+            raise ValueError("Extracted data is empty.")
+
         return df
 
     except Exception as e:
