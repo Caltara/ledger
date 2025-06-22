@@ -1,46 +1,51 @@
 import openai
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import io
+from pdf2image import convert_from_bytes
+from PIL import Image
 import json
 
-openai.api_key = st.secrets.get("OPENAI_API_KEY")
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-def extract_tables_from_pdf(uploaded_file) -> pd.DataFrame:
-    """
-    Sends a full PDF file to GPT-4 Vision via the file API,
-    asks it to return a clean, structured P&L table in JSON format.
-    """
-    st.info("Uploading PDF to OpenAI for table extraction...")
+def extract_tables_from_pdf(file) -> pd.DataFrame:
+    images = convert_from_bytes(file.read())
+    tables = []
 
-    try:
-        # Upload file to OpenAI
-        file_response = openai.files.create(
-            file=uploaded_file,
-            purpose="assistants"
-        )
-        file_id = file_response.id
+    for i, image in enumerate(images):
+        st.info(f"Processing page {i+1} with GPT-4o...")
 
-        # Send file to GPT-4o with instructions
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": (
-                    "You are a financial data analyst. "
-                    "Extract the P&L table from the uploaded PDF and return it as a JSON array of objects. "
-                    "Each object should represent one row. Remove currency symbols, commas, and non-numeric characters."
-                )},
-                {"role": "user", "content": [
-                    {"type": "text", "text": "Please extract the table from this PDF and return it as clean JSON."},
-                    {"type": "file", "file_id": file_id}
-                ]}
-            ],
-            max_tokens=2000
-        )
+        buffered = io.BytesIO()
+        image.save(buffered, format="PNG")
+        image_bytes = buffered.getvalue()
 
-        text = response.choices[0].message.content
-        data = json.loads(text)
-        return pd.DataFrame(data)
+        try:
+            response = openai.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": (
+                        "You are a financial analyst. Extract the Profit & Loss table from the image as JSON. "
+                        "Output it as an array of objects like this:\n"
+                        "[{\"Line Item\": \"Revenue\", \"Jan\": 10000, \"Feb\": 12000, ...}, ...]\n"
+                        "Only return the JSON. No text or explanation."
+                    )},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": "Extract the table from this page."},
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64," + image_bytes.hex(), "detail": "high"}}
+                    ]}
+                ],
+                max_tokens=1500
+            )
 
-    except Exception as e:
-        st.error(f"OpenAI file extraction failed: {e}")
-        raise ValueError("Failed to extract table from PDF using GPT.")
+            raw_text = response.choices[0].message.content
+            data = json.loads(raw_text)
+            df = pd.DataFrame(data)
+            tables.append(df)
+
+        except Exception as e:
+            st.error(f"Page {i+1} failed: {e}")
+
+    if not tables:
+        raise ValueError("❌ GPT-4o could not extract any table from the PDF.")
+
+    return pd.concat(tables, ignore_index=True)
