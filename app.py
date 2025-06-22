@@ -8,14 +8,15 @@ st.title("📊 Ledger | P&L Analyzer")
 
 st.markdown("""
 Upload a **Profit & Loss (P&L) statement** in CSV or PDF format.  
-- Only a summary and significant changes will be shown.
+- CSV: From Excel or QuickBooks exports  
+- PDF: GPT-powered extraction for complex structured reports
 """)
 
 uploaded_file = st.file_uploader("📤 Upload CSV or PDF", type=["csv", "pdf"])
 
 if uploaded_file:
     try:
-        with st.spinner("Analyzing your P&L..."):
+        with st.spinner("🔍 Processing file..."):
             if uploaded_file.type == "text/csv":
                 raw_df = pd.read_csv(uploaded_file)
             elif uploaded_file.type == "application/pdf":
@@ -24,14 +25,21 @@ if uploaded_file:
                 st.error("Unsupported file type.")
                 st.stop()
 
+            st.subheader("📑 Raw Extracted Data Preview (First 10 rows)")
+            st.dataframe(raw_df.head(10))
+
             df = clean_and_convert(raw_df)
+
+            st.subheader("📊 Cleaned P&L Table Preview (First 10 rows)")
+            st.dataframe(df.head(10))
+
             anomalies = detect_irregularities(df)
 
-            st.subheader("📈 Summary of Detected Changes (±5%)")
+            st.subheader("🚨 Detected Irregularities (±5% Changes)")
             if anomalies:
-                st.dataframe(pd.DataFrame(anomalies))
+                st.table(pd.DataFrame(anomalies))
             else:
-                st.success("✅ No significant changes detected.")
+                st.success("✅ No significant irregularities found.")
 
     except ValueError as ve:
         st.error(f"❌ {str(ve)}")
