@@ -1,25 +1,25 @@
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 
 def clean_and_convert(df):
-    df.columns = [col.strip().lower() for col in df.columns]
+    # Standardize column names
+    df.columns = [str(col).strip().lower() for col in df.columns]
+    
+    # Drop fully empty rows
     df = df.dropna(how='all')
+
+    # Ensure the first column is "line items"
+    df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
+
+    # Try converting each remaining column to numeric, skip if it fails
+    numeric_columns = []
     for col in df.columns[1:]:
-        df[col] = df[col].replace('[\$,]', '', regex=True).astype(float)
-    return df
+        try:
+            df[col] = df[col].replace('[\$,]', '', regex=True).astype(float)
+            numeric_columns.append(col)
+        except Exception:
+            df.drop(columns=[col], inplace=True)
 
-def detect_irregularities(df, threshold=2.0):
-    irregularities = []
-    scaler = StandardScaler()
-    values = scaler.fit_transform(df.iloc[:, 1:].T).T  # z-score by row
+    if not numeric_columns:
+        raise ValueError("No numeric columns were found to analyze. Please upload a CSV with actual financial figures.")
 
-    for i, row in enumerate(values):
-        for j, val in enumerate(row):
-            if abs(val) > threshold:
-                irregularities.append({
-                    "line_item": df.iloc[i, 0],
-                    "period": df.columns[j+1],
-                    "z_score": round(val, 2),
-                    "amount": df.iloc[i, j+1]
-                })
-    return irregularities
+    return df[[df.columns[0]] + numeric_columns]
