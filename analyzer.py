@@ -26,9 +26,9 @@ def clean_and_convert(df: pd.DataFrame) -> pd.DataFrame:
 
     return df_clean
 
-def detect_irregularities(df: pd.DataFrame, threshold_pct=0.3):
+def detect_irregularities(df: pd.DataFrame, threshold_pct=0.1):
     """
-    Detect irregularities where a month-over-month change is greater than threshold_pct (e.g. 30%)
+    Detect irregularities where a month-over-month change is greater than threshold_pct (e.g. 10%)
     Returns a list of dicts with 'Line Item', 'Period', 'Change', and 'Note'.
     """
 
