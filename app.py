@@ -8,18 +8,18 @@ st.set_page_config(page_title="Ledger | P&L Analyzer", layout="wide")
 st.title("📊 Ledger | P&L Analyzer")
 
 st.markdown("""
-Upload a **Profit & Loss (P&L) statement** (PDF or CSV).  
-This tool scans the entire document and shows:
-- A high-level summary of total change
-- Only line items (products, services, etc.) with a **±5% or more** increase/decrease
+Upload a **Profit & Loss (P&L) statement** as a PDF or CSV.  
+The app will analyze the full document and provide:
+- A high-level summary of your P&L
+- A filtered table showing only line items with **±5% or more change**
 """)
 
 uploaded_file = st.file_uploader("📤 Upload CSV or PDF", type=["csv", "pdf"])
 
 if uploaded_file:
     try:
-        with st.spinner("🔍 Processing and analyzing full report..."):
-            # Extract full document
+        with st.spinner("🔍 Scanning and analyzing full P&L..."):
+            # Step 1: Extract the full P&L
             if uploaded_file.type == "text/csv":
                 raw_df = pd.read_csv(uploaded_file)
             elif uploaded_file.type == "application/pdf":
@@ -28,10 +28,10 @@ if uploaded_file:
                 st.error("Unsupported file type.")
                 st.stop()
 
-            # Clean for logic, retain original names
+            # Step 2: Clean data for analysis
             cleaned_df = clean_and_convert(raw_df)
 
-            # Filter for rows with change >= 5%
+            # Step 3: Filter for rows with ±5% change
             filtered_rows = []
             for i, row in cleaned_df.iterrows():
                 for col in cleaned_df.columns:
@@ -44,23 +44,22 @@ if uploaded_file:
                         except:
                             continue
 
-            # Show summary (based on entire cleaned data)
-            st.markdown("### 🧾 P&L Summary")
+            # Step 4: Show summary
+            st.subheader("🧾 P&L Summary")
             st.info(generate_summary(raw_df))
 
-            # If no significant changes found
             if not filtered_rows:
-                st.success("✅ No line items changed by more than ±5%.")
+                st.success("✅ No significant changes (±5%) found in this P&L.")
                 st.stop()
 
-            # Format filtered results with $ and %
+            # Step 5: Format filtered rows for output
             filtered_df = pd.DataFrame(filtered_rows)
             formatted_df = format_for_report(clean_and_convert(filtered_df))
 
-            st.markdown("### 📌 Significant Line Item Changes (±5%)")
+            st.subheader("📌 Significant Line Item Changes (±5%)")
             st.dataframe(formatted_df, use_container_width=True)
 
-            # Allow export
+            # Step 6: Download button
             csv_buffer = StringIO()
             formatted_df.to_csv(csv_buffer, index=False)
             st.download_button(
