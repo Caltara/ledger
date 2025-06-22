@@ -1,55 +1,61 @@
 import pandas as pd
 
-def clean_and_convert(df):
-    df = df.copy()
+def clean_and_convert(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.dropna(how="all").dropna(axis=1, how="all").copy()
+    df.columns = df.columns.str.strip()
+
+    numeric_cols = []
     for col in df.columns:
-        if df[col].dtype == object:
-            df[col] = df[col].astype(str).str.replace(r'[\$,,%]', '', regex=True)
-            df[col] = df[col].str.replace(',', '', regex=False)
-            try:
-                df[col] = df[col].astype(float)
-            except:
-                pass
+        if col.lower() == "line item":
+            continue
+        try:
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.replace(r"[$,]", "", regex=True)
+                .str.replace("%", "", regex=False)
+                .str.strip()
+            )
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            numeric_cols.append(col)
+        except Exception:
+            pass
+
+    df[numeric_cols] = df[numeric_cols].fillna(0)
     return df
 
-def format_for_report(df):
-    df = df.copy()
-    for col in df.columns:
-        if df[col].dtype == float or df[col].dtype == int:
-            if "change" in col.lower():
-                df[col] = df[col].map(lambda x: f"{x:.2f}%" if pd.notnull(x) else "")
-            else:
-                df[col] = df[col].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else "")
-    return df
+def detect_irregularities(df: pd.DataFrame, threshold=5):
+    pct_change_cols = [col for col in df.columns if "CHANGE" in col.upper()]
+    if not pct_change_cols:
+        raise ValueError("No % CHANGE columns found in data for analysis.")
 
-def detect_irregularities(df, threshold=5.0):
     anomalies = []
-    for _, row in df.iterrows():
-        for col in df.columns:
-            if "change" in col.lower():
-                try:
-                    if abs(float(row[col])) >= threshold:
-                        anomalies.append(row.to_dict())
-                        break
-                except:
-                    continue
+    for idx, row in df.iterrows():
+        for col in pct_change_cols:
+            try:
+                val_str = str(row[col]).replace("%", "").strip()
+                val = float(val_str)
+                if abs(val) >= threshold:
+                    anomalies.append(
+                        {
+                            "Line Item": row.get("Line Item", f"Row {idx}"),
+                            "Change Type": col,
+                            "Change (%)": f"{val:+.2f}%",
+                            "Value": row.get(col.replace("CHANGE", "").strip(), ""),
+                        }
+                    )
+            except Exception:
+                continue
+
     return anomalies
 
-def generate_summary(df):
-    df_clean = clean_and_convert(df.copy())
-    change_columns = [col for col in df_clean.columns if "change" in col.lower()]
-    total_changes = {}
-
-    for col in change_columns:
-        try:
-            valid_vals = df_clean[col].dropna()
-            avg_change = valid_vals.mean()
-            total_changes[col] = f"{avg_change:.2f}%"
-        except:
-            continue
-
-    if not total_changes:
-        return "No valid change data available to summarize."
-
-    summary = "\n".join([f"- **{col}**: Average change of **{val}**" for col, val in total_changes.items()])
+def generate_summary(df: pd.DataFrame) -> dict:
+    summary = {}
+    numeric_cols = [
+        col for col in df.columns if col.lower() != "line item" and pd.api.types.is_numeric_dtype(df[col])
+    ]
+    for col in numeric_cols:
+        col_sum = df[col].sum()
+        summary[col] = f"${col_sum:,.2f}"
+    summary["Total Line Items"] = len(df)
     return summary
