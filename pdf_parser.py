@@ -18,9 +18,9 @@ def extract_tables_from_pdf(uploaded_file):
                 {
                     "role": "system",
                     "content": (
-                        "You are a financial data analyst. "
-                        "Extract tables from this Profit & Loss statement text and return the data as a JSON object "
-                        "with column headers matching line items and date columns."
+                        "You are a financial data analyst. Extract the Profit & Loss table data from this text. "
+                        "Return a JSON array of dictionaries, where each dictionary is one row of the table. "
+                        "Each dictionary should have column headers like 'Line Item', dates, and % changes."
                     ),
                 },
                 {"role": "user", "content": all_text},
@@ -30,11 +30,23 @@ def extract_tables_from_pdf(uploaded_file):
 
         extracted_obj = response.choices[0].message.content
 
-        # Handle nested data if present
-        if isinstance(extracted_obj, dict) and "data" in extracted_obj:
-            data_for_df = extracted_obj["data"]
-        else:
+        # Ensure content is parsed
+        if isinstance(extracted_obj, str):
+            import json
+            extracted_obj = json.loads(extracted_obj)
+
+        # ✅ FIX: if GPT wraps it inside {"table": [...]}, unwrap it
+        if isinstance(extracted_obj, dict):
+            if "table" in extracted_obj:
+                data_for_df = extracted_obj["table"]
+            elif "data" in extracted_obj:
+                data_for_df = extracted_obj["data"]
+            else:
+                raise ValueError("GPT response did not include a valid table key.")
+        elif isinstance(extracted_obj, list):
             data_for_df = extracted_obj
+        else:
+            raise ValueError("GPT response is not a valid JSON list or object.")
 
         df = pd.DataFrame(data_for_df)
 
