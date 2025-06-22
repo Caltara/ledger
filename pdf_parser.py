@@ -1,6 +1,7 @@
 import pandas as pd
 import fitz  # PyMuPDF
 import openai
+import json
 
 def extract_tables_from_pdf(uploaded_file):
     try:
@@ -18,9 +19,9 @@ def extract_tables_from_pdf(uploaded_file):
                 {
                     "role": "system",
                     "content": (
-                        "You are a financial data analyst. Extract the Profit & Loss table data from this text. "
-                        "Return a JSON array of dictionaries, where each dictionary is one row of the table. "
-                        "Each dictionary should have column headers like 'Line Item', dates, and % changes."
+                        "You're a financial data analyst. Extract the Profit & Loss table from this text. "
+                        "Return ONLY a JSON array of rows — do not wrap it in an object. Each row should include "
+                        "'Line Item', date columns, and % change columns."
                     ),
                 },
                 {"role": "user", "content": all_text},
@@ -28,35 +29,37 @@ def extract_tables_from_pdf(uploaded_file):
             response_format={"type": "json_object"},
         )
 
-        extracted_obj = response.choices[0].message.content
+        raw_json = response.choices[0].message.content
 
-        # Ensure content is parsed
-        if isinstance(extracted_obj, str):
-            import json
-            extracted_obj = json.loads(extracted_obj)
-
-        # ✅ FIX: if GPT wraps it inside {"table": [...]}, unwrap it
-        if isinstance(extracted_obj, dict):
-            if "table" in extracted_obj:
-                data_for_df = extracted_obj["table"]
-            elif "data" in extracted_obj:
-                data_for_df = extracted_obj["data"]
-            else:
-                raise ValueError("GPT response did not include a valid table key.")
-        elif isinstance(extracted_obj, list):
-            data_for_df = extracted_obj
+        if isinstance(raw_json, str):
+            parsed = json.loads(raw_json)
         else:
-            raise ValueError("GPT response is not a valid JSON list or object.")
+            parsed = raw_json
 
-        df = pd.DataFrame(data_for_df)
+        # Case 1: Direct list (ideal)
+        if isinstance(parsed, list):
+            df = pd.DataFrame(parsed)
+
+        # Case 2: Wrapped in dict — try to auto-detect key
+        elif isinstance(parsed, dict):
+            possible_keys = ["table", "data", "rows", "result", "lines"]
+            for key in possible_keys:
+                if key in parsed and isinstance(parsed[key], list):
+                    df = pd.DataFrame(parsed[key])
+                    break
+            else:
+                raise ValueError("GPT response did not include a recognizable table key.")
+
+        else:
+            raise ValueError("Invalid GPT JSON response format.")
 
         if df.empty:
-            raise ValueError("Extracted data is empty.")
+            raise ValueError("Extracted table is empty.")
 
         return df
 
     except Exception as e:
         raise ValueError(
-            "❌ GPT failed to extract table from PDF. Make sure it's a readable P&L export. Error: "
+            "❌ ❌ GPT failed to extract table from PDF. Make sure it's a readable P&L export. Error: "
             + str(e)
         )
