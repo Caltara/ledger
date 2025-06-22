@@ -7,9 +7,9 @@ st.set_page_config(page_title="Ledger | P&L Analyzer", layout="wide")
 st.title("📊 Ledger | P&L Analyzer")
 
 st.markdown("""
-Upload a **Profit & Loss (P&L) statement** in either CSV or PDF format.  
+Upload a **Profit & Loss (P&L) statement** in CSV or PDF format.  
 - CSV: From Excel or QuickBooks  
-- PDF: Even if it's structured but not extractable with regular code, GPT will analyze it
+- PDF: GPT-4o Vision will extract tables from images of your PDF  
 """)
 
 uploaded_file = st.file_uploader("📤 Upload CSV or PDF", type=["csv", "pdf"])
@@ -33,7 +33,7 @@ if uploaded_file:
             st.subheader("📊 Cleaned P&L Table")
             st.dataframe(df)
 
-            anomalies = detect_irregularities(df)
+            anomalies = detect_irregularities(df, threshold_pct=0.3)
 
             st.subheader("🚨 Detected Irregularities")
             if anomalies:
