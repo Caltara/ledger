@@ -1,20 +1,21 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from pdf_parser import extract_tables_from_pdf
 from analyzer import clean_and_convert, detect_irregularities
 
 st.set_page_config(page_title="Ledger | P&L Analyzer", layout="wide")
-
 st.title("📊 Ledger | P&L Analyzer")
 
-uploaded_file = st.file_uploader("Upload your P&L statement (PDF)", type="pdf")
+uploaded_file = st.file_uploader(
+    "Upload your P&L statement (CSV format)", 
+    type=["csv"]
+)
 
 if uploaded_file:
     try:
         with st.spinner("Extracting and analyzing..."):
-            # Extract tables from PDF
-            raw_df = extract_tables_from_pdf(uploaded_file)
+            # Read CSV file
+            raw_df = pd.read_csv(uploaded_file)
 
             # Clean and convert data types
             df = clean_and_convert(raw_df)
