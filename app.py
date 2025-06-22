@@ -1,8 +1,22 @@
-from pdf_parser import extract_tables_from_pdf  # the new GPT version
+import streamlit as st
+import pandas as pd
+from analyzer import clean_and_convert, detect_irregularities
+from pdf_parser import extract_tables_from_pdf  # GPT-4 Vision parser
+
+st.set_page_config(page_title="Ledger | P&L Analyzer", layout="wide")
+st.title("📊 Ledger | P&L Analyzer")
+
+st.markdown("""
+Upload a **Profit & Loss (P&L) statement** in either CSV or PDF format.  
+- CSV: Should have line items in the first column and numbers in the others  
+- PDF: Scanned or digital, GPT-4 Vision will try to extract data  
+""")
+
+uploaded_file = st.file_uploader("📤 Upload CSV or PDF", type=["csv", "pdf"])
 
 if uploaded_file:
     try:
-        with st.spinner("Processing file..."):
+        with st.spinner("🔍 Processing file..."):
             if uploaded_file.type == "text/csv":
                 raw_df = pd.read_csv(uploaded_file)
 
@@ -10,7 +24,7 @@ if uploaded_file:
                 raw_df = extract_tables_from_pdf(uploaded_file)
 
             else:
-                st.error("Unsupported file type.")
+                st.error("❌ Unsupported file type.")
                 st.stop()
 
             st.subheader("📑 Raw Extracted Data")
@@ -27,9 +41,12 @@ if uploaded_file:
             if anomalies:
                 st.table(pd.DataFrame(anomalies))
             else:
-                st.success("No significant irregularities found.")
+                st.success("✅ No significant irregularities found.")
 
-            # Your plotting code here...
+            # Optional: Add line chart visualization
+            st.subheader("📈 Trends by Line Item")
+            for i in range(len(df)):
+                st.line_chart(data=df.iloc[i, 1:], use_container_width=True)
 
     except ValueError as ve:
         st.error(f"❌ {str(ve)}")
